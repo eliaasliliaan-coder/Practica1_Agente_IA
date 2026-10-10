@@ -1,0 +1,48 @@
+TOOLS = [
+    {
+        "type":"function",
+        "function":{
+            "name": "obtener_clima_api",
+            "descripction":(
+                "Llama a esta funcion para obtener el clima actual en cualquir lugar."
+                "Se debe enviar como argumento la latitud y longitud"
+        
+            ),
+        "parameters":{
+            "type":"object",
+            "properties": {
+                "lat": {
+                    "type":"string",
+                    "description": "La latitud del lugar del cual se desea obtener el clima"
+                },
+                "long": {
+                    "type":"string",
+                    "description": "La longitud del lugar del cual se desea obtener el clima"
+                }
+            },
+            "required":["lat", "long"]
+            }
+        }
+    },
+    {
+        "type":"function",
+        "function":{
+            "name": "obtener_lat_long",
+            "descripction":(
+                "Llama a esta funcion para obtener la latitud y longitud de cualquier ciudad."
+                "Se debe enviar como argumento el nombre de la ciudad"
+        
+            ),
+        "parameters":{
+            "type":"object",
+            "properties": {
+                "ciudad": {
+                    "type":"string",
+                    "description": "El nombre de la ciudad para la cual se desea obtener la latitud y longitud"
+                }
+            },
+            "required":["ciudad"]
+            }
+        }
+    }
+]

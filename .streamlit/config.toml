@@ -1,0 +1,8 @@
+[theme]
+# Tema oscuro con acento violeta (look tecnologico / moderno)
+base = "dark"
+primaryColor = "#7B61FF"
+backgroundColor = "#0D1117"
+secondaryBackgroundColor = "#161B22"
+textColor = "#E6EDF3"
+font = "sans serif"

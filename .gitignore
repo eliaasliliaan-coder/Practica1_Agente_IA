@@ -1,0 +1,14 @@
+# Llaves secretas: NUNCA subir a GitHub
+.env
+.streamlit/secrets.toml
+
+# Entornos virtuales (pesan mucho y no se necesitan)
+.venv/
+.venv-1/
+.venv-2/
+.venv-3/
+env/
+
+# Archivos temporales de Python
+__pycache__/
+*.pyc
