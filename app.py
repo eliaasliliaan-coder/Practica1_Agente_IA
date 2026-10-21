@@ -105,12 +105,13 @@ def cargar_memoria(usuario, session_actual):
 
 
 def fecha_de_hoy():
-    """Fecha actual en Guatemala, en español, calculada en cada recarga."""
+    """Fecha y hora actual en Guatemala, en español, calculada en cada recarga."""
     dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
     meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
              "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
     d = datetime.now(ZoneInfo("America/Guatemala"))
-    return f"{dias[d.weekday()]} {d.day} de {meses[d.month - 1]} de {d.year}"
+    hora = d.strftime("%I:%M %p").lstrip("0")  # ej. 8:05 PM
+    return f"{dias[d.weekday()]} {d.day} de {meses[d.month - 1]} de {d.year}, a las {hora}"
 
 # --------------------------------------------------------------------------- #
 # 2) Configuracion de la pagina
