@@ -6,6 +6,8 @@
 import os
 import streamlit as st
 import pandas as pd
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # --------------------------------------------------------------------------- #
 # 1) Llaves: en Streamlit Cloud vienen de st.secrets; en local, del .env.
@@ -55,12 +57,13 @@ if "session_id" not in st.session_state:
 
 
 def guardar_en_supabase(role, content):
-    """Guarda un mensaje en la tabla 'conversaciones'."""
+    """Guarda un mensaje en la tabla 'conversaciones', etiquetado con el usuario."""
     if supabase is None:
         return
     try:
         supabase.table("conversaciones").insert({
             "session_id": st.session_state.session_id,
+            "usuario": st.session_state.get("usuario") or None,
             "role": role,
             "content": content,
         }).execute()
@@ -68,6 +71,46 @@ def guardar_en_supabase(role, content):
         # Mostramos el error en pantalla para poder diagnosticarlo
         st.toast(f"No se pudo guardar en Supabase: {e}")
         print(f"No se pudo guardar en Supabase: {e}")
+
+
+def cargar_memoria(usuario, session_actual):
+    """Trae las conversaciones ANTERIORES de este usuario (de otras sesiones)
+    y las devuelve como texto, para dárselas a Lillié como memoria."""
+    if supabase is None or not usuario:
+        return ""
+    try:
+        resp = (supabase.table("conversaciones")
+                .select("role, content, created_at, session_id")
+                .eq("usuario", usuario)
+                .neq("session_id", session_actual)   # solo sesiones pasadas
+                .order("created_at", desc=True)
+                .limit(30)                            # solo lo reciente (por los tokens)
+                .execute())
+        filas = resp.data or []
+    except Exception as e:
+        print(f"No se pudo cargar la memoria: {e}")
+        return ""
+
+    if not filas:
+        return ""
+
+    filas = list(reversed(filas))  # de más antiguo a más reciente
+    lineas = []
+    for f in filas:
+        fecha = (f.get("created_at") or "")[:10]   # solo la parte AAAA-MM-DD
+        quien = "Usuario" if f.get("role") == "user" else "Lillié"
+        texto = (f.get("content") or "")[:250]     # recortamos para no gastar tokens
+        lineas.append(f"[{fecha}] {quien}: {texto}")
+    return "\n".join(lineas)
+
+
+def fecha_de_hoy():
+    """Fecha actual en Guatemala, en español, calculada en cada recarga."""
+    dias = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+             "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    d = datetime.now(ZoneInfo("America/Guatemala"))
+    return f"{dias[d.weekday()]} {d.day} de {meses[d.month - 1]} de {d.year}"
 
 # --------------------------------------------------------------------------- #
 # 2) Configuracion de la pagina
@@ -94,6 +137,10 @@ with st.sidebar:
         with centro:
             st.image(_LOGO, use_container_width=True)
     st.caption("Asistente de Políticas Públicas y Desarrollo Económico")
+
+    # Identidad ligera: activa la memoria personal del usuario
+    st.text_input("Tu nombre o código (activa tu memoria)", key="usuario",
+                  placeholder="ej. Lilian")
 
     if st.button("Limpiar conversación", use_container_width=True):
         st.session_state.messages = []
@@ -288,6 +335,28 @@ if prompt:
         {"role": m["role"], "content": m["content"]}
         for m in st.session_state.messages[-10:]
     ]
+
+    # Cargar la memoria del usuario UNA vez por nombre (de sesiones anteriores)
+    usuario = st.session_state.get("usuario")
+    if usuario and st.session_state.get("_memoria_para") != usuario:
+        st.session_state.memoria_usuario = cargar_memoria(usuario, st.session_state.session_id)
+        st.session_state._memoria_para = usuario
+
+    # Armar el contexto: nombre del usuario + fecha de hoy + memoria anterior
+    contexto = f"La fecha de hoy es {fecha_de_hoy()} (zona horaria de Guatemala). " \
+               f"Si en tus instrucciones aparece otra fecha, esta es la correcta."
+    if usuario:
+        contexto += f" El usuario con el que hablas se llama {usuario}; " \
+                    f"si te pregunta su nombre, respóndele que es {usuario}."
+    memoria = st.session_state.get("memoria_usuario", "") if usuario else ""
+    if memoria:
+        contexto += ("\n\nTIENES MEMORIA de conversaciones anteriores con este usuario "
+                     f"({usuario}). Úsala para recordar lo que hablaron en días previos si "
+                     "te preguntan (por ejemplo '¿qué hicimos ayer?'). Conversaciones "
+                     "anteriores, con su fecha:\n" + memoria)
+
+    # El contexto va como un mensaje de sistema al inicio del historial
+    historia = [{"role": "system", "content": contexto}] + historia
 
     # Guardar y mostrar el mensaje del usuario
     st.session_state.messages.append({"role": "user", "content": prompt})
