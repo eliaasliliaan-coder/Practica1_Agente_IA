@@ -1,4 +1,4 @@
-﻿##############################################
+##############################################
 # Lillié - Interfaz web (Streamlit)          #
 # Reutiliza el agente de consola sin cambios #
 ##############################################
@@ -376,7 +376,6 @@ with st.sidebar:
         "✸ **Tipo de cambio** — divisas  \n"
         "✸ **Gráficos** — líneas y barras"
     )
-    st.caption("Bilingüe · español o inglés")
 
 # --------------------------------------------------------------------------- #
 # 4) Función para dibujar un gráfico a partir de la "receta" que da el agente
@@ -538,6 +537,7 @@ with st.sidebar:
 
     # Estado de la base de datos (diagnóstico)
     st.markdown("---")
+    st.caption("Bilingüe · español o inglés")
     st.caption(f"Base de datos: {_SB_STATUS}")
     # Crédito al pie de la barra lateral
     st.caption("Lilian Elías · Data Analytics · Héctor Galeros")
