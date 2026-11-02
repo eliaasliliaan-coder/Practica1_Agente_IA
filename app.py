@@ -1,4 +1,4 @@
-﻿##############################################
+##############################################
 # Lillié - Interfaz web (Streamlit)          #
 # Reutiliza el agente de consola sin cambios #
 ##############################################
@@ -6,6 +6,7 @@
 import os
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -51,19 +52,23 @@ else:
         _SB_STATUS = f"Error al conectar: {e}"
         supabase = None
 
-# Un identificador unico por sesion, para agrupar los mensajes de una misma conversacion
+# Identificador único por CONVERSACIÓN (se renueva al dar "Nueva conversación")
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())
+# Título de la conversación actual (se arma con el primer mensaje del usuario)
+if "titulo_chat" not in st.session_state:
+    st.session_state.titulo_chat = None
 
 
 def guardar_en_supabase(role, content):
-    """Guarda un mensaje en la tabla 'conversaciones', etiquetado con el usuario."""
+    """Guarda un mensaje en la tabla 'conversaciones', con usuario y título del chat."""
     if supabase is None:
         return
     try:
         supabase.table("conversaciones").insert({
             "session_id": st.session_state.session_id,
             "usuario": st.session_state.get("usuario") or None,
+            "titulo": st.session_state.get("titulo_chat"),
             "role": role,
             "content": content,
         }).execute()
@@ -117,16 +122,133 @@ def fecha_de_hoy():
 # 2) Configuracion de la pagina
 # --------------------------------------------------------------------------- #
 import os as _os
+import base64 as _base64
 _LOGO = "logo.png" if _os.path.exists("logo.png") else None
+
+
+def _fondo_css():
+    """Si existe fondo.jpg en la carpeta, lo usa como fondo con una capa oscura
+    encima (para que el texto se lea bien). Si no, deja fondo negro."""
+    if _os.path.exists("fondo.jpg"):
+        with open("fondo.jpg", "rb") as f:
+            b64 = _base64.b64encode(f.read()).decode()
+        return (
+            ".stApp {"
+            "  background: linear-gradient(rgba(9,11,16,0.80), rgba(9,11,16,0.88)),"
+            f"              url('data:image/jpeg;base64,{b64}');"
+            "  background-size: cover;"
+            "  background-position: center;"
+            "  background-attachment: fixed;"
+            "}"
+        )
+    return ".stApp { background: #0D1117; }"
 # El logo también se usa como avatar de Lillié en el chat (None si no hay logo.png)
-AVATAR_LILLIE = _LOGO
-AVATAR_USUARIO = "estrella.png" if _os.path.exists("estrella.png") else "⭐"  # avatar del usuario
+# Avatar de Lillié: solo el isotipo (sin el texto); si no está, usa el logo completo
+AVATAR_LILLIE = "isotipo.png" if _os.path.exists("isotipo.png") else _LOGO
+def _avatar_usuario():
+    """Dibuja un círculo azul oscuro con la inicial del nombre (o None si no hay nombre)."""
+    nombre = st.session_state.get("usuario")
+    if not (nombre and nombre.strip()):
+        return None
+    inicial = nombre.strip()[0].upper()
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        import io
+        S = 128
+        img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        d.ellipse([0, 0, S - 1, S - 1], fill=(30, 58, 138, 255))  # azul oscuro #1E3A8A
+
+        # Buscar una fuente que sí exista (Windows, Linux o la que haya)
+        font = None
+        for nombre_fuente in ("arialbd.ttf", "arial.ttf", "DejaVuSans-Bold.ttf",
+                              "DejaVuSans.ttf", "segoeui.ttf"):
+            try:
+                font = ImageFont.truetype(nombre_fuente, 92)   # letra grande
+                break
+            except Exception:
+                continue
+        if font is None:
+            try:
+                font = ImageFont.load_default(size=92)
+            except Exception:
+                font = ImageFont.load_default()
+
+        caja = d.textbbox((0, 0), inicial, font=font)
+        w, h = caja[2] - caja[0], caja[3] - caja[1]
+        d.text(((S - w) / 2 - caja[0], (S - h) / 2 - caja[1]), inicial,
+               fill=(255, 255, 255, 255), font=font)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None  # si algo falla, simplemente no mostramos avatar
 
 st.set_page_config(
     page_title="Lillié",
     page_icon=_LOGO if _LOGO else ":material/insights:",
     layout="wide",
 )
+
+# Fondo con degradado morado (de morado profundo arriba a casi negro abajo)
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Lora:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
+
+/* Barra lateral semitransparente (deja ver un poco el fondo) */
+section[data-testid="stSidebar"] > div {
+    background: rgba(9, 11, 15, 0.70);
+}
+/* Quitar la barra negra de arriba: encabezado transparente */
+[data-testid="stHeader"] {
+    background: transparent;
+}
+/* Contenido centrado con ancho máximo (márgenes a los lados) */
+.stMainBlockContainer, [data-testid="stMainBlockContainer"] {
+    max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
+}
+/* Fuente serif (Lora) en todo el texto */
+html, body, .stApp, .stApp p, .stApp li, .stApp label,
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+.stButton button, .stApp input, .stApp textarea,
+[data-testid="stMarkdownContainer"] {
+    font-family: 'Lora', Georgia, serif !important;
+}
+/* El saludo grande con una serif más decorativa */
+.saludo-lillie {
+    font-family: 'Playfair Display', serif !important;
+    font-size: 2.1rem;
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 0.2rem 0 0.4rem 0;
+}
+/* Botones redondeados con acento violeta */
+.stButton button {
+    border-radius: 10px;
+    font-weight: 600;
+}
+.stButton button:hover {
+    border-color: #2F80ED;
+    color: #2F80ED;
+}
+/* Tarjetas de opciones: borde blanco y más compactas */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border: 1px solid rgba(255, 255, 255, 0.75) !important;
+    border-radius: 12px;
+}
+/* Botón dentro de las tarjetas: más pequeño */
+div[data-testid="stVerticalBlockBorderWrapper"] .stButton button {
+    padding: 0.15rem 0.6rem;
+    min-height: 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# Fondo de la app (imagen con capa oscura si existe fondo.jpg; si no, negro)
+st.markdown(f"<style>{_fondo_css()}</style>", unsafe_allow_html=True)
 
 # --------------------------------------------------------------------------- #
 # 3) Barra lateral
@@ -139,12 +261,17 @@ with st.sidebar:
             st.image(_LOGO, use_container_width=True)
     st.caption("Asistente de Políticas Públicas y Desarrollo Económico")
 
+    # Navegación entre las dos vistas de la app
+    vista = st.radio("Menú", ["Asistente", "Tablero"], label_visibility="collapsed")
+
     # Identidad ligera: activa la memoria personal del usuario
     st.text_input("Tu nombre o código (activa tu memoria)", key="usuario",
                   placeholder="ej. Lilian")
 
-    if st.button("Limpiar conversación", use_container_width=True):
+    if st.button("Nueva conversación", use_container_width=True):
+        st.session_state.session_id = str(uuid.uuid4())  # chat nuevo = id nuevo
         st.session_state.messages = []
+        st.session_state.titulo_chat = None
         st.rerun()
 
     st.markdown("#### Herramientas")
@@ -311,76 +438,291 @@ with st.sidebar:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Mostrar los mensajes previos (con sus gráficos si los tienen)
-for m in st.session_state.messages:
-    avatar = AVATAR_LILLIE if m["role"] == "assistant" else AVATAR_USUARIO
-    with st.chat_message(m["role"], avatar=avatar):
-        st.markdown(m["content"])
-        for g in m.get("graficos", []):
-            dibujar_grafico(g)
+# =========================================================================== #
+# VISTA 1: ASISTENTE (el chat de siempre)
+# =========================================================================== #
+def vista_asistente():
+    # Mostrar los mensajes previos (con sus gráficos si los tienen)
+    for m in st.session_state.messages:
+        avatar = AVATAR_LILLIE if m["role"] == "assistant" else _avatar_usuario()
+        with st.chat_message(m["role"], avatar=avatar):
+            st.markdown(m["content"])
+            for g in m.get("graficos", []):
+                dibujar_grafico(g)
 
-# --------------------------------------------------------------------------- #
-# 7) Entrada del usuario y respuesta del agente
-# --------------------------------------------------------------------------- #
-# El prompt puede venir del cuadro de chat, o del botón "Pedir conclusiones"
-prompt = st.chat_input("Escribe un mensaje para Lillié...")
-if not prompt and st.session_state.get("pending_prompt"):
-    prompt = st.session_state.pop("pending_prompt")
+    # Pantalla de bienvenida con tarjetas (solo cuando la conversación está vacía)
+    if not st.session_state.messages:
+        hora = datetime.now(ZoneInfo("America/Guatemala")).hour
+        if hora < 12:
+            saludo = "Buenos días"
+        elif hora < 19:
+            saludo = "Buenas tardes"
+        else:
+            saludo = "Buenas noches"
+        nombre = st.session_state.get("usuario")
+        titulo_saludo = f"{saludo}, {nombre}. Soy Lillié" if nombre else f"{saludo}, soy Lillié"
+        st.markdown(f'<div class="saludo-lillie">{titulo_saludo}</div>', unsafe_allow_html=True)
+        st.caption("Tu asistente de análisis de políticas públicas y desarrollo económico. "
+                   "Consulto datos reales, simulo modelos de crecimiento, mido pobreza y "
+                   "desigualdad, y genero gráficos.")
+        st.markdown("#### ¿Qué quieres analizar hoy?")
 
-if prompt:
+        tarjetas = [
+            ("Comparar países", "PIB per cápita de Guatemala, Honduras y El Salvador",
+             "Compara el PIB per cápita de Guatemala, Honduras y El Salvador"),
+            ("Consultar el IDH", "Índice de Desarrollo Humano de Guatemala",
+             "¿Cuál es el IDH de Guatemala?"),
+            ("Simular crecimiento", "Qué pasa si sube la inversión del 15% al 25%",
+             "Simula qué pasa con el ingreso de largo plazo si Guatemala sube su tasa de "
+             "inversión del 15% al 25%"),
+            ("Graficar", "La evolución de la pobreza en Guatemala",
+             "Grafica la evolución de la pobreza en Guatemala"),
+            ("Medir pobreza y desigualdad", "FGT y Gini de una muestra de ingresos",
+             "Con estos ingresos [800, 1200, 1500, 2000, 3500, 8000] y una línea de pobreza "
+             "de 1500, calcula la pobreza (FGT) y la desigualdad (Gini) e interprétalas"),
+            ("Explicar teoría", "El modelo de Romer frente a Solow",
+             "Explícame el modelo de Romer y en qué se diferencia de Solow"),
+        ]
+        cols = st.columns(2)
+        for i, (titulo, desc, texto) in enumerate(tarjetas):
+            with cols[i % 2]:
+                with st.container(border=True):
+                    st.markdown(f"**{titulo}**")
+                    st.caption(desc)
+                    if st.button("Analizar", key=f"tarjeta_{i}", use_container_width=True):
+                        st.session_state.pending_prompt = texto
+                        st.rerun()
 
-    # Historial ANTES de este mensaje (ultimos 10 turnos para no crecer sin limite).
-    # Enviamos SOLO 'role' y 'content' al modelo: el campo 'graficos' es para la
-    # pantalla, y la API de Groq rechaza campos que no reconoce.
-    historia = [
-        {"role": m["role"], "content": m["content"]}
-        for m in st.session_state.messages[-10:]
-    ]
+    # El prompt puede venir del cuadro de chat, o de un botón (tarjetas / CSV)
+    prompt = st.chat_input("Escribe un mensaje para Lillié...")
+    if not prompt and st.session_state.get("pending_prompt"):
+        prompt = st.session_state.pop("pending_prompt")
 
-    # Cargar la memoria del usuario UNA vez por nombre (de sesiones anteriores)
-    usuario = st.session_state.get("usuario")
-    if usuario and st.session_state.get("_memoria_para") != usuario:
-        st.session_state.memoria_usuario = cargar_memoria(usuario, st.session_state.session_id)
-        st.session_state._memoria_para = usuario
+    if prompt:
+        # Historial ANTES de este mensaje (ultimos 10 turnos), solo role y content
+        historia = [
+            {"role": m["role"], "content": m["content"]}
+            for m in st.session_state.messages[-10:]
+        ]
 
-    # Armar el contexto: nombre del usuario + fecha de hoy + memoria anterior
-    contexto = f"La fecha de hoy es {fecha_de_hoy()} (zona horaria de Guatemala). " \
-               f"Si en tus instrucciones aparece otra fecha, esta es la correcta."
-    if usuario:
-        contexto += f" El usuario con el que hablas se llama {usuario}; " \
-                    f"si te pregunta su nombre, respóndele que es {usuario}."
-    memoria = st.session_state.get("memoria_usuario", "") if usuario else ""
-    if memoria:
-        contexto += ("\n\nTIENES MEMORIA de conversaciones anteriores con este usuario "
-                     f"({usuario}). Úsala para recordar lo que hablaron en días previos si "
-                     "te preguntan (por ejemplo '¿qué hicimos ayer?'). Conversaciones "
-                     "anteriores, con su fecha:\n" + memoria)
+        # Cargar la memoria del usuario UNA vez por nombre (de sesiones anteriores)
+        usuario = st.session_state.get("usuario")
+        if usuario and st.session_state.get("_memoria_para") != usuario:
+            st.session_state.memoria_usuario = cargar_memoria(usuario, st.session_state.session_id)
+            st.session_state._memoria_para = usuario
 
-    # El contexto va como un mensaje de sistema al inicio del historial
-    historia = [{"role": "system", "content": contexto}] + historia
+        # Contexto: nombre del usuario + fecha de hoy + memoria anterior
+        contexto = f"La fecha de hoy es {fecha_de_hoy()} (zona horaria de Guatemala). " \
+                   f"Si en tus instrucciones aparece otra fecha, esta es la correcta."
+        if usuario:
+            contexto += f" El usuario con el que hablas se llama {usuario}; " \
+                        f"si te pregunta su nombre, respóndele que es {usuario}."
+        memoria = st.session_state.get("memoria_usuario", "") if usuario else ""
+        if memoria:
+            contexto += ("\n\nTIENES MEMORIA de conversaciones anteriores con este usuario "
+                         f"({usuario}). Úsala para recordar lo que hablaron en días previos si "
+                         "te preguntan (por ejemplo '¿qué hicimos ayer?'). Conversaciones "
+                         "anteriores, con su fecha:\n" + memoria)
 
-    # Guardar y mostrar el mensaje del usuario
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    guardar_en_supabase("user", prompt)
-    with st.chat_message("user", avatar=AVATAR_USUARIO):
-        st.markdown(prompt)
+        historia = [{"role": "system", "content": contexto}] + historia
 
-    # Generar y mostrar la respuesta del agente
-    with st.chat_message("assistant", avatar=AVATAR_LILLIE):
-        with st.spinner("Pensando..."):
-            try:
-                respuesta, graficos = process_response(client, historia, prompt)
-            except Exception as e:
-                respuesta, graficos = f"Ocurrió un error al procesar tu mensaje: {e}", []
-        st.markdown(respuesta)
-        for g in graficos:
-            dibujar_grafico(g)
+        # Si es el primer mensaje del chat, su texto se vuelve el título
+        if not st.session_state.get("titulo_chat"):
+            st.session_state.titulo_chat = prompt.strip()[:40]
 
-    # Guardar la respuesta y sus gráficos para que se conserven en el historial
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": respuesta,
-        "graficos": graficos,
-    })
-    guardar_en_supabase("assistant", respuesta)
+        # Guardar y mostrar el mensaje del usuario
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        guardar_en_supabase("user", prompt)
+        with st.chat_message("user", avatar=_avatar_usuario()):
+            st.markdown(prompt)
 
+        # Generar y mostrar la respuesta del agente
+        with st.chat_message("assistant", avatar=AVATAR_LILLIE):
+            with st.spinner("Pensando..."):
+                try:
+                    respuesta, graficos = process_response(client, historia, prompt)
+                except Exception as e:
+                    respuesta, graficos = f"Ocurrió un error al procesar tu mensaje: {e}", []
+            st.markdown(respuesta)
+            for g in graficos:
+                dibujar_grafico(g)
+
+        # Guardar la respuesta y sus gráficos
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": respuesta,
+            "graficos": graficos,
+        })
+        guardar_en_supabase("assistant", respuesta)
+
+
+# =========================================================================== #
+# VISTA 2: TABLERO comparativo de políticas públicas
+# =========================================================================== #
+# Países de Latinoamérica (nombre visible -> código ISO de 3 letras).
+# Se usan todos para el mapa; el usuario elige un subconjunto para el gráfico de líneas.
+PAISES_TABLERO = {
+    "Guatemala": "GTM", "Honduras": "HND", "El Salvador": "SLV", "Nicaragua": "NIC",
+    "Costa Rica": "CRI", "Panamá": "PAN", "Belice": "BLZ", "México": "MEX",
+    "Rep. Dominicana": "DOM", "Cuba": "CUB", "Haití": "HTI",
+    "Colombia": "COL", "Venezuela": "VEN", "Ecuador": "ECU", "Perú": "PER",
+    "Bolivia": "BOL", "Brasil": "BRA", "Paraguay": "PRY", "Uruguay": "URY",
+    "Argentina": "ARG", "Chile": "CHL",
+}
+# Indicadores: etiqueta -> (clave de la herramienta, fuente)
+INDICADORES_TABLERO = {
+    "PIB per cápita": ("pib_per_capita", "bm"),
+    "Crecimiento del PIB": ("crecimiento_pib", "bm"),
+    "Pobreza": ("pobreza", "bm"),
+    "Desigualdad (Gini)": ("gini", "bm"),
+    "Inflación": ("inflacion", "bm"),
+    "Desempleo": ("desempleo", "bm"),
+    "Gasto en educación": ("gasto_educacion", "bm"),
+    "Gasto en salud": ("gasto_salud", "bm"),
+    "Esperanza de vida": ("esperanza_vida", "bm"),
+    "IDH": ("hdi", "pnud"),
+}
+
+
+def _series_banco_mundial(resultado):
+    """Convierte la respuesta del Banco Mundial en {pais: {anio: valor}}."""
+    if "error" in resultado:
+        return {}, resultado.get("indicador", ""), resultado["error"]
+    series = {}
+    for pais, info in resultado.get("paises", {}).items():
+        series[pais] = {int(d["anio"]): d["valor"] for d in info.get("serie", [])}
+    return series, resultado.get("indicador", ""), None
+
+
+def _series_pnud(resultado):
+    """Convierte la respuesta del PNUD (IDH) en {pais: {anio: valor}} de forma tolerante."""
+    if "error" in resultado:
+        return {}, "Índice de Desarrollo Humano", resultado["error"]
+    series = {}
+    for fila in resultado.get("datos", []):
+        if not isinstance(fila, dict):
+            continue
+        pais = fila.get("country") or fila.get("countryName") or fila.get("Country")
+        anio = fila.get("year") or fila.get("Year")
+        valor = fila.get("value") if fila.get("value") is not None else fila.get("Value")
+        if pais is None or anio is None or valor is None:
+            continue
+        try:
+            series.setdefault(str(pais), {})[int(anio)] = float(valor)
+        except (TypeError, ValueError):
+            continue
+    return series, "Índice de Desarrollo Humano (PNUD)", None
+
+
+def _traer_series(clave, fuente, codigos):
+    """Pide los datos a la herramienta correcta y devuelve (series, nombre, error)."""
+    if fuente == "bm":
+        r = tools_directo.consultar_indicador_banco_mundial(clave, pais=codigos)
+        return _series_banco_mundial(r)
+    r = tools_directo.consultar_idh_pnud(pais=codigos, indicador=clave)
+    return _series_pnud(r)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _traer_series_cache(clave, fuente, codigos):
+    """Versión cacheada: evita volver a llamar a la API por la misma consulta."""
+    return _traer_series(clave, fuente, codigos)
+
+
+def vista_tablero():
+    st.markdown('<div class="saludo-lillie">Tablero comparativo</div>', unsafe_allow_html=True)
+    st.caption("Datos reales del Banco Mundial y el PNUD. El mapa muestra toda Latinoamérica "
+               "según el indicador; elige países para ver su evolución en líneas.")
+
+    col_i, col_p = st.columns([1, 2])
+    with col_i:
+        sel_ind = st.selectbox("Indicador", list(INDICADORES_TABLERO.keys()))
+    with col_p:
+        sel_paises = st.multiselect("Países para el gráfico de líneas",
+                                    list(PAISES_TABLERO.keys()),
+                                    default=["Guatemala", "Honduras", "El Salvador"])
+
+    clave, fuente = INDICADORES_TABLERO[sel_ind]
+
+    # =================== MAPA (siempre visible, solo depende del indicador) =============
+    with st.spinner("Cargando mapa..."):
+        series_todos, nombre_ind, error = _traer_series_cache(
+            clave, fuente, ";".join(PAISES_TABLERO.values()))
+
+    st.markdown(f"**{nombre_ind or sel_ind} — mapa de Latinoamérica**")
+    if error:
+        st.error(error)
+    elif not series_todos:
+        st.info("No hay datos de mapa para este indicador.")
+    else:
+        filas = []
+        for pais, serie_anios in series_todos.items():
+            if not serie_anios:
+                continue
+            anio = max(serie_anios.keys())
+            nombre_limpio = str(pais).split(",")[0].strip()  # "Venezuela, RB" -> "Venezuela"
+            filas.append({"pais": nombre_limpio, "valor": serie_anios[anio], "anio": anio})
+        df_mapa = pd.DataFrame(filas).dropna(subset=["valor"])
+
+        if not df_mapa.empty:
+            fig = px.choropleth(
+                df_mapa, locations="pais", locationmode="country names",
+                color="valor", hover_name="pais",
+                hover_data={"pais": False, "valor": True, "anio": True},
+                # Escala azul -> celeste (tecnológica, resalta)
+                color_continuous_scale=["#0b2550", "#1E6FFF", "#19C6FF", "#8EEBFF"],
+            )
+            # Base oscura azulada tipo satelital, con fronteras tenues
+            fig.update_geos(
+                fitbounds="locations", visible=True,
+                showland=True, landcolor="#0e1a33",
+                showocean=True, oceancolor="#070d1a",
+                showlakes=True, lakecolor="#070d1a",
+                showcountries=True, countrycolor="rgba(255,255,255,0.18)",
+                showcoastlines=False, bgcolor="rgba(0,0,0,0)",
+            )
+            fig.update_traces(marker_line_color="rgba(255,255,255,0.3)", marker_line_width=0.4)
+            fig.update_layout(margin=dict(l=0, r=0, t=0, b=0),
+                              paper_bgcolor="rgba(0,0,0,0)",
+                              font_color="#E6EDF3",
+                              coloraxis_colorbar_title="",
+                              height=460)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No se pudo dibujar el mapa de este indicador.")
+
+    # =================== LÍNEAS (independiente, según países elegidos) ==================
+    st.markdown("---")
+    if sel_paises:
+        codigos_sel = ";".join(PAISES_TABLERO[p] for p in sel_paises)
+        series_sel, _, err2 = _traer_series_cache(clave, fuente, codigos_sel)
+        if err2:
+            st.error(err2)
+        elif series_sel:
+            st.markdown("**Evolución en el tiempo:**")
+            df_lineas = pd.DataFrame(series_sel).sort_index()
+            st.line_chart(df_lineas)
+            recientes = {}
+            for pais in df_lineas.columns:
+                s = df_lineas[pais].dropna()
+                recientes[pais] = round(s.iloc[-1], 3) if not s.empty else None
+            st.markdown("**Valor más reciente:**")
+            st.dataframe(pd.DataFrame({"Valor más reciente": recientes}),
+                         use_container_width=True)
+        else:
+            st.info("Los países elegidos no tienen datos para este indicador.")
+    else:
+        st.info("Elige países arriba para ver la evolución en el tiempo.")
+
+
+# =========================================================================== #
+# Despacho: mostrar la vista elegida en el menú
+# =========================================================================== #
+# Si hay un prompt pendiente (tarjetas o CSV), nos aseguramos de estar en el chat
+if st.session_state.get("pending_prompt"):
+    vista = "Asistente"
+
+if vista == "Tablero":
+    vista_tablero()
+else:
+    vista_asistente()

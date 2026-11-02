@@ -1,7 +1,7 @@
 [theme]
-# Tema oscuro con acento violeta (look tecnologico / moderno)
+# Tema oscuro con acento AZUL (look tecnologico)
 base = "dark"
-primaryColor = "#7B61FF"
+primaryColor = "#2F80ED"
 backgroundColor = "#0D1117"
 secondaryBackgroundColor = "#161B22"
 textColor = "#E6EDF3"
