@@ -1,4 +1,4 @@
-##############################################
+﻿##############################################
 # Lillié - Interfaz web (Streamlit)          #
 # Reutiliza el agente de consola sin cambios #
 ##############################################
@@ -107,6 +107,81 @@ def cargar_memoria(usuario, session_actual):
         texto = (f.get("content") or "")[:250]     # recortamos para no gastar tokens
         lineas.append(f"[{fecha}] {quien}: {texto}")
     return "\n".join(lineas)
+
+
+def listar_conversaciones(usuario, limite=15):
+    """Devuelve las conversaciones recientes del usuario como lista de
+    {session_id, titulo, fecha}, la más reciente primero."""
+    if supabase is None or not usuario:
+        return []
+    try:
+        resp = (supabase.table("conversaciones")
+                .select("session_id, titulo, created_at")
+                .eq("usuario", usuario)
+                .order("created_at", desc=True)
+                .limit(400)   # traemos varias filas y agrupamos por conversación
+                .execute())
+        filas = resp.data or []
+    except Exception as e:
+        print(f"No se pudo listar conversaciones: {e}")
+        return []
+
+    convs = []
+    vistos = set()
+    for f in filas:
+        sid = f.get("session_id")
+        if not sid or sid in vistos:
+            continue
+        vistos.add(sid)
+        titulo_completo = (f.get("titulo") or "Conversación").strip()
+        convs.append({
+            "session_id": sid,
+            "titulo": titulo_completo[:40],          # corto, para mostrar en la lista
+            "titulo_completo": titulo_completo,       # completo, para el tooltip
+            "fecha": (f.get("created_at") or "")[:10],
+        })
+        if len(convs) >= limite:
+            break
+    return convs
+
+
+def cargar_conversacion(session_id):
+    """Trae todos los mensajes de una conversación (por su session_id), en orden."""
+    if supabase is None:
+        return []
+    try:
+        resp = (supabase.table("conversaciones")
+                .select("role, content, created_at")
+                .eq("session_id", session_id)
+                .order("created_at", desc=False)   # del más antiguo al más nuevo
+                .execute())
+        filas = resp.data or []
+    except Exception as e:
+        print(f"No se pudo cargar la conversación: {e}")
+        return []
+    return [{"role": f.get("role"), "content": f.get("content") or ""} for f in filas]
+
+
+def generar_titulo(mensaje):
+    """Pide a Lillié un título corto (3-5 palabras) que resuma el tema del chat."""
+    try:
+        r = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=[
+                {"role": "system", "content":
+                 "Devuelve SOLO un título corto de 3 a 5 palabras, en español, que resuma "
+                 "el tema del mensaje. Sin comillas, sin punto final, sin explicaciones."},
+                {"role": "user", "content": mensaje},
+            ],
+            max_tokens=20,
+            temperature=0.3,
+        )
+        titulo = (r.choices[0].message.content or "").strip().strip('"').replace("\n", " ").strip()
+        if titulo:
+            return titulo[:45]
+    except Exception as e:
+        print(f"No se pudo generar título: {e}")
+    return mensaje.strip()[:40]  # respaldo: el pedacito del mensaje
 
 
 def fecha_de_hoy():
@@ -244,6 +319,23 @@ div[data-testid="stVerticalBlockBorderWrapper"] .stButton button {
     padding: 0.15rem 0.6rem;
     min-height: 0;
 }
+/* Conversaciones recientes: enlaces pequeños, sin borde ni fondo */
+[class*="st-key-conv_"] button {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding: 1px 6px !important;
+    min-height: 0 !important;
+    font-size: 0.72rem !important;
+    font-weight: 400 !important;
+    color: #9aa4b2 !important;
+}
+[class*="st-key-conv_"] button:hover {
+    color: #E6EDF3 !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -284,7 +376,6 @@ with st.sidebar:
         "✸ **Tipo de cambio** — divisas  \n"
         "✸ **Gráficos** — líneas y barras"
     )
-    st.markdown("---")
     st.caption("Bilingüe · español o inglés")
 
 # --------------------------------------------------------------------------- #
@@ -426,6 +517,25 @@ def resumen_csv_para_chat(res):
 with st.sidebar:
     st.markdown("---")
     panel_csv(tools_directo)
+
+    # --- Conversaciones recientes (abajo, como enlaces pequeños) ---
+    _usuario_actual = st.session_state.get("usuario")
+    if _usuario_actual:
+        convs = listar_conversaciones(_usuario_actual, limite=15)
+        if convs:
+            st.markdown("---")
+            st.caption("Conversaciones recientes")
+            for c in convs:
+                etiqueta = c["titulo"] or "Conversación"
+                if c["session_id"] == st.session_state.session_id:
+                    etiqueta = "• " + etiqueta  # marca la conversación abierta
+                if st.button(etiqueta, key=f"conv_{c['session_id']}",
+                             use_container_width=True):
+                    st.session_state.session_id = c["session_id"]
+                    st.session_state.titulo_chat = c["titulo_completo"]
+                    st.session_state.messages = cargar_conversacion(c["session_id"])
+                    st.rerun()
+
     # Estado de la base de datos (diagnóstico)
     st.markdown("---")
     st.caption(f"Base de datos: {_SB_STATUS}")
@@ -528,7 +638,7 @@ def vista_asistente():
 
         # Si es el primer mensaje del chat, su texto se vuelve el título
         if not st.session_state.get("titulo_chat"):
-            st.session_state.titulo_chat = prompt.strip()[:40]
+            st.session_state.titulo_chat = generar_titulo(prompt)
 
         # Guardar y mostrar el mensaje del usuario
         st.session_state.messages.append({"role": "user", "content": prompt})
